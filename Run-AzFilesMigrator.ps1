@@ -64,7 +64,6 @@ function Get-AzShareInfo {
 
     [hashtable]$return = @{}
     if ($source) { $L = "Source" }elseif ($dest) { $L = "Destination" }
-
     Write-Host "Please select the $L storage account" -BackgroundColor Black -ForegroundColor Yellow
     $stg = $storageaccts | ogv -Title "Select $L Storage Account" -PassThru
     Write-Host "$L storage account is" $stg.StorageAccountName -BackgroundColor Black -ForegroundColor Green
@@ -72,7 +71,6 @@ function Get-AzShareInfo {
     $shares = Get-AzStorageShare -Context $stg.Context
     Write-Host "Please Select the $L file share in" $stg.StorageAccountName -BackgroundColor Black -ForegroundColor Yellow
     $share = $shares | ogv -Title "Select $L File Share" -PassThru
-
     $return = @{"StorageAcctName" = $stg.StorageAccountName; "StorageAcctContext" = $stg.Context; "ShareName" = $share.Name }
     return $return
 }
@@ -90,7 +88,6 @@ function Get-AzShareSAS {
     if ($source) { $perms = "rl" }elseif ($dest) { $perms = "rwl" }
     $StartTime = Get-Date
     $EndTime = $StartTime.AddHours(12.0)
-
     New-AzStorageAccountSASToken -Service File -ResourceType Service, Container, Object -Context $stgcontext -StartTime $StartTime -ExpiryTime $EndTime -Permission $perms -Protocol HttpsOnly
 }
 function Copy-AzFileDirectory {
@@ -114,7 +111,6 @@ function Copy-AzFileDirectory {
     )
     $srcurl = "https://" + $srcstgacctname + ".file.core.windows.net/" + $srcsharename + "/" + $srcdirname + "?" + $srcSAS
     $desturl = "https://" + $deststgacctname + ".file.core.windows.net/" + $destsharename + "/" + $destdirname + "?" + $destSAS
-
     &$azcexep copy $srcurl $desturl --recursive --preserve-smb-permissions=true --preserve-smb-info=true
 }
 function get-CSVlistpath {
@@ -127,7 +123,6 @@ function get-CSVlistpath {
     $null = $FB.ShowDialog()
     return $FB.FileName
 }
-
 function Invoke-Option {
     param (
         [parameter (Mandatory = $true)]
@@ -135,10 +130,10 @@ function Invoke-Option {
         [ValidateLength(1, 1)]
         [string]$userSelection
     )
-
     if ($userSelection -eq "1") {
         #1 - Perform Azure Files Migration
-        if (!(Test-Path $AzCopyWPath\azcopy*\*.exe)) {
+        Set-AzCopyLocal
+        if ($azcexep -eq $null) {
             Write-Host "AzCopy is not found at" $AzCopyWPath -BackgroundColor Black -ForegroundColor Red
             $hv = Read-Host -Prompt "Would you like to download the latest AzCopy Tool on $env:computername ? (y/n)"
             if ($hv.Trim().ToLower() -eq "y") {
@@ -155,8 +150,7 @@ function Invoke-Option {
                 Invoke-Option -userSelection (Get-Option)
             }
         }
-        if ($azcexep -eq $null) {Set-AzCopyLocalPath}
-        
+        if ($azcexep -eq $null) { Set-AzCopyLocalPath }
         Write-Host "Getting list of available storage accounts" -BackgroundColor Black -ForegroundColor Green
         $stgaccts = Get-AzStorageAccount
         Write-Host $stgaccts.Count "storage accounts found" -BackgroundColor Black -ForegroundColor Green
