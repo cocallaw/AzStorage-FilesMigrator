@@ -2,7 +2,6 @@
 $azcopyURI = "https://aka.ms/downloadazcopy-v10-windows"
 $AzCopySetup = "C:\AzCopy\DL"
 $AzCopyWPath = "C:\AzCopy\"
-$azcexep = $null
 #endregion vatiables
 
 #region functions
@@ -44,13 +43,11 @@ function Get-AzCopyFromWeb {
     Write-Host "Downloaded AzCopy to $AzCopySetup" -BackgroundColor Black -ForegroundColor Green
     Write-Host "Expanding and cleaning up azcopy_windows_amd64.zip" -BackgroundColor Black -ForegroundColor Green
     Expand-Archive "$AzCopySetup\azcopy_windows_amd64.zip" -DestinationPath "$AzCopyWPath" -ErrorAction SilentlyContinue
+    $ci = Get-ChildItem -Path $AzCopyWPath -Include *.exe, *.txt -File -Recurse
+    foreach ($file in $ci) { Copy-Item $file.FullName -Destination $AzCopyWPath }
     Remove-Item "$AzCopySetup" -Force -Recurse
+    Remove-Item $ci.DirectoryName -Force -Recurse -ErrorAction SilentlyContinue
     Write-Host "AzCopy Tool is located at" $AzCopyWPath -BackgroundColor Black -ForegroundColor Green
-    Set-AzCopyLocal
-}
-function Set-AzCopyLocal {
-    $azcexep = Get-ChildItem -Path $AzCopyWPath -Include *.exe -File -Recurse
-    $azcexep = $azcexep.FullName
 }
 function Get-AzShareInfo {
     param (
@@ -111,7 +108,7 @@ function Copy-AzFileDirectory {
     )
     $srcurl = "https://" + $srcstgacctname + ".file.core.windows.net/" + $srcsharename + "/" + $srcdirname + "?" + $srcSAS
     $desturl = "https://" + $deststgacctname + ".file.core.windows.net/" + $destsharename + "/" + $destdirname + "?" + $destSAS
-    &$azcexep copy $srcurl $desturl --recursive --preserve-smb-permissions=true --preserve-smb-info=true
+    &$AzCopyWPath\azcopy.exe copy $srcurl $desturl --recursive --preserve-smb-permissions=true --preserve-smb-info=true
 }
 function get-CSVlistpath {
     Add-Type -AssemblyName System.Windows.Forms
@@ -132,8 +129,7 @@ function Invoke-Option {
     )
     if ($userSelection -eq "1") {
         #1 - Perform Azure Files Migration
-        Set-AzCopyLocal
-        if ($azcexep -eq $null) {
+        if ((Test-Path $AzCopyWPath\azcopy.exe -PathType Leaf) -eq $false) {
             Write-Host "AzCopy is not found at" $AzCopyWPath -BackgroundColor Black -ForegroundColor Red
             $hv = Read-Host -Prompt "Would you like to download the latest AzCopy Tool on $env:computername ? (y/n)"
             if ($hv.Trim().ToLower() -eq "y") {
@@ -150,11 +146,10 @@ function Invoke-Option {
                 Invoke-Option -userSelection (Get-Option)
             }
         }
-        if ($azcexep -eq $null) { Set-AzCopyLocalPath }
         Write-Host "Getting list of available storage accounts" -BackgroundColor Black -ForegroundColor Green
         $stgaccts = Get-AzStorageAccount
         Write-Host $stgaccts.Count "storage accounts found" -BackgroundColor Black -ForegroundColor Green
-        $sv = Read-Host -Prompt "Would you like to see only storage accounts with AD integration enabled? (y/n)" -BackgroundColor Black -ForegroundColor Yellow
+        $sv = Read-Host -Prompt "Would you like to see only storage accounts with AD integration enabled? (y/n)"
         if ($sv.Trim().ToLower() -eq "y") {
             Write-host "Filtering storage accounts for those with AD integration enabled" -BackgroundColor Black -ForegroundColor Green
             $stgaccts = $stgaccts | where { $_.AzureFilesIdentityBasedAuth -ne $null }
