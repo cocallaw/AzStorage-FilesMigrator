@@ -85,7 +85,11 @@ function Get-AzShareSAS {
     if ($source) { $perms = "rl" }elseif ($dest) { $perms = "rwl" }
     $StartTime = Get-Date
     $EndTime = $StartTime.AddHours(12.0)
-    New-AzStorageAccountSASToken -Service File -ResourceType Service, Container, Object -Context $stgcontext -StartTime $StartTime -ExpiryTime $EndTime -Permission $perms -Protocol HttpsOnly
+    #New-AzStorageAccountSASToken -Service File -ResourceType Service, Container, Object -Context $stgcontext -StartTime $StartTime -ExpiryTime $EndTime -Permission $perms -Protocol HttpsOnly
+    #$s = New-AzStorageAccountSASToken -Service Blob,File -ResourceType Service,Container,Object -Permission "racwdlup" -Context $stgcontext -StartTime $StartTime -ExpiryTime $EndTime -Protocol HttpsOnly
+    #$s = New-AzStorageShareSASToken -ShareName $sharename -Permission $perms -Context $stgcontext -StartTime $StartTime -ExpiryTime $EndTime -Protocol HttpsOnly -FullUri
+    $s = Get-AzStorageShare -Prefix $sharename -Context $stgcontext | New-AzStorageShareSASToken -Permission $perms
+    return $s
 }
 function Copy-AzFileDirectory {
     param (
@@ -108,7 +112,7 @@ function Copy-AzFileDirectory {
     )
     $srcurl = "https://" + $srcstgacctname + ".file.core.windows.net/" + $srcsharename + "/" + $srcdirname + "?" + $srcSAS
     $desturl = "https://" + $deststgacctname + ".file.core.windows.net/" + $destsharename + "/" + $destdirname + "?" + $destSAS
-    &$AzCopyWPath\azcopy.exe copy $srcurl $desturl --recursive --preserve-smb-permissions=true --preserve-smb-info=true
+    &$AzCopyWPath\azcopy.exe copy "$srcurl" "$desturl" --recursive --preserve-smb-permissions=true --preserve-smb-info=true
 }
 function get-CSVlistpath {
     Add-Type -AssemblyName System.Windows.Forms
@@ -167,15 +171,17 @@ function Invoke-Option {
         Write-Host "-----Destination-----" -BackgroundColor Black -ForegroundColor Green
         Write-Host "Destination Storage Account" $dinfo.StorageAcctName -BackgroundColor Black -ForegroundColor Green
         Write-Host "Destination File Share" $dinfo.ShareName -BackgroundColor Black -ForegroundColor Green
-        #Confirm with user that information is correct
-        $sv = Read-Host -Prompt "Is this selection correct? (y/n)" -BackgroundColor Black -ForegroundColor Yellow
-        if ($sv.Trim().ToLower() -eq "n") {
+        #Perform check on source and destination variables to ensure they are not null
+        if (($sinfo.StorageAcctName -eq $null) -or ($sinfo.ShareName -eq $null) -or ($dinfo.StorageAcctName -eq $null) -or ($dinfo.ShareName -eq $null)) {
+            Write-Host "One or more selections was empty/null"
             Write-Host "Restarting Selection Process"
             Invoke-Option -userSelection 1
         }
-        elseif (($sv.Trim().ToLower() -eq "n") -or ($sv.Trim().ToLower() -eq "y")) {
-            Write-Host "Invalid Entry" -BackgroundColor Black -ForegroundColor Red
-            Invoke-Option -userSelection (Get-Option)
+        #Confirm with user that information is correct
+        $sv = Read-Host -Prompt "Is this selection correct? (y/n)"
+        if ($sv.Trim().ToLower() -eq "n") {
+            Write-Host "Restarting Selection Process"
+            Invoke-Option -userSelection 1
         }
         Write-Host "Generating SAS Token for source and destination shares" -BackgroundColor Black -ForegroundColor Green
         $ssas = Get-AzShareSAS -stgcontext $sinfo.StorageAcctContext -sharename $sinfo.ShareName -source
@@ -183,7 +189,7 @@ function Invoke-Option {
         #Ask if moving indivual folder or using a folder list with .csv extension
         Write-Host "What would you like to do?" -BackgroundColor Black -ForegroundColor Yellow
         Write-Host "1 - Copy a single directory"
-        Write-Host "2 - Copy multiple directories using a CSV"    
+        Write-Host "2 - Copy multiple directories using a CSV - NOT WORKING"    
         $op = Read-Host -Prompt 'Please type the number of the option you would like to perform '
         if ($op.Trim().ToLower() -eq "1") {
             Write-Host "You have selected option 1" -BackgroundColor Black -ForegroundColor Green
@@ -191,7 +197,7 @@ function Invoke-Option {
             $src = Read-Host -Prompt 'Please provide the name of the source directory to copy'
             $src = $src.Trim() 
 
-            Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdir $src -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $dinfo.ShareName -destSAS $dsas
+            Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdir $src -destdirname $src -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $dinfo.ShareName -destSAS $dsas
         }
         elseif ($op.Trim().ToLower() -eq "2") {
             Write-Host "You have selected option 2" -BackgroundColor Black -ForegroundColor Green
