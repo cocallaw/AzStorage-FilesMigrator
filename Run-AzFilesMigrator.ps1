@@ -126,7 +126,7 @@ function Get-CSVlist {
         [string]$csvfilepath
     )
     $csv = Import-Csv -Path $csvfilepath -Header uid
-    Write-Host $csv.count()"Items were imported from the CSV file provided"  -BackgroundColor Black -ForegroundColor Green
+    Write-Host $csv.count"Items were imported from the CSV file provided"  -BackgroundColor Black -ForegroundColor Green
     return $csv 
 }
 function Get-UIDShareMatches {
@@ -146,7 +146,7 @@ function Get-UIDShareMatches {
         $b = $sfiles | where { $_.Name -like "*$a*" }
         if ($b -ne $null) {
             Write-Host "$a has been matched to" $b.Name 
-            $mfiles.Add($a,$b.Name)
+            $mfiles.Add($a, $b.Name)
         }
         else {
             Write-Host "$a has not been matched to any directory"
@@ -234,7 +234,7 @@ function Invoke-Option {
             Write-Host "You have selected option 2" -BackgroundColor Black -ForegroundColor Green
             Write-Host "Please provide the CSV to use" -BackgroundColor Black -ForegroundColor Yellow
             $cfp = Get-CSVlistpath
-            $cl = Get-CSVlist -csvpath $cfp
+            $cl = Get-CSVlist -csvfilepath $cfp
             $sm = Get-UIDShareMatches -names $cl -share $sinfo.ShareName -stgcontext $sinfo.StorageAcctContext -deststgacct
             foreach ($m in $sm.getenumerator()) {
                 Write-Host "Processing"+$m.Key+"with the directory of"$m.Value
