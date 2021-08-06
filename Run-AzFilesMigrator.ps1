@@ -58,7 +58,6 @@ function Get-AzShareInfo {
         [parameter (Mandatory = $false)]
         [switch]$dest
     )
-
     [hashtable]$return = @{}
     if ($source) { $L = "Source" }elseif ($dest) { $L = "Destination" }
     Write-Host "Please select the $L storage account" -BackgroundColor Black -ForegroundColor Yellow
@@ -85,9 +84,6 @@ function Get-AzShareSAS {
     if ($source) { $perms = "rl" }elseif ($dest) { $perms = "rwl" }
     $StartTime = Get-Date
     $EndTime = $StartTime.AddHours(12.0)
-    #New-AzStorageAccountSASToken -Service File -ResourceType Service, Container, Object -Context $stgcontext -StartTime $StartTime -ExpiryTime $EndTime -Permission $perms -Protocol HttpsOnly
-    #$s = New-AzStorageAccountSASToken -Service Blob,File -ResourceType Service,Container,Object -Permission "racwdlup" -Context $stgcontext -StartTime $StartTime -ExpiryTime $EndTime -Protocol HttpsOnly
-    #$s = New-AzStorageShareSASToken -ShareName $sharename -Permission $perms -Context $stgcontext -StartTime $StartTime -ExpiryTime $EndTime -Protocol HttpsOnly -FullUri
     $s = Get-AzStorageShare -Prefix $sharename -Context $stgcontext.Context | New-AzStorageShareSASToken -Permission $perms -StartTime $StartTime -ExpiryTime $EndTime
     return $s
 }
@@ -114,7 +110,7 @@ function Copy-AzFileDirectory {
     $desturl = "https://" + $deststgacctname + ".file.core.windows.net/" + $destsharename + "/" + $destdirname + $destSAS
     &$AzCopyWPath\azcopy.exe copy "$srcurl" "$desturl" --recursive --preserve-smb-permissions=true --preserve-smb-info=true
 }
-function get-CSVlistpath {
+function Get-CSVlistpath {
     Add-Type -AssemblyName System.Windows.Forms
     $FB = New-Object System.Windows.Forms.OpenFileDialog -Property @{ 
         InitialDirectory = [Environment]::GetFolderPath('Desktop')
@@ -123,6 +119,40 @@ function get-CSVlistpath {
     }
     $null = $FB.ShowDialog()
     return $FB.FileName
+}
+function Get-CSVlist {
+    param (
+        [parameter (Mandatory = $true)]
+        [string]$csvfilepath
+    )
+    $csv = Import-Csv -Path $csvfilepath -Header uid
+    Write-Host $csv.count()"Items were imported from the CSV file provided"  -BackgroundColor Black -ForegroundColor Green
+    return $csv 
+}
+function Get-UIDShareMatches {
+    [CmdletBinding()]
+    param (
+        [parameter (Mandatory = $true)]
+        [array]$names,
+        [parameter (Mandatory = $true)]
+        [string]$share,
+        [parameter (Mandatory = $true)]
+        [Microsoft.Azure.Commands.Common.Authentication.Abstractions.IStorageContext]$stgcontext
+    )
+    $sfiles = Get-AzStorageFile -Context $stgcontext -ShareName $share
+    $mfiles = New-Object System.Collections.Generic.Dictionary"[String,String]"
+    foreach ($x in $names) {
+        $a = $x.uid
+        $b = $sfiles | where { $_.Name -like "*$a*" }
+        if ($b -ne $null) {
+            Write-Host "$a has been matched to" $b.Name 
+            $mfiles.Add($a,$b.Name)
+        }
+        else {
+            Write-Host "$a has not been matched to any directory"
+        }
+    }
+    return $mfiles
 }
 function Invoke-Option {
     param (
@@ -203,7 +233,13 @@ function Invoke-Option {
         elseif ($op.Trim().ToLower() -eq "2") {
             Write-Host "You have selected option 2" -BackgroundColor Black -ForegroundColor Green
             Write-Host "Please provide the CSV to use" -BackgroundColor Black -ForegroundColor Yellow
-            $cfp = get-csvlistpath
+            $cfp = Get-CSVlistpath
+            $cl = Get-CSVlist -csvpath $cfp
+            $sm = Get-UIDShareMatches -names $cl -share $sinfo.ShareName -stgcontext $sinfo.StorageAcctContext -deststgacct
+            foreach ($m in $sm.getenumerator()) {
+                Write-Host "Processing"+$m.Key+"with the directory of"$m.Value
+                Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdirname $m.Value -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $m.Value -destdirname $srcdir -destSAS $dsas
+            }
         }
         else {
             Write-Host "Invalid option entered" -BackgroundColor Black -ForegroundColor Red
