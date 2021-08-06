@@ -88,7 +88,7 @@ function Get-AzShareSAS {
     #New-AzStorageAccountSASToken -Service File -ResourceType Service, Container, Object -Context $stgcontext -StartTime $StartTime -ExpiryTime $EndTime -Permission $perms -Protocol HttpsOnly
     #$s = New-AzStorageAccountSASToken -Service Blob,File -ResourceType Service,Container,Object -Permission "racwdlup" -Context $stgcontext -StartTime $StartTime -ExpiryTime $EndTime -Protocol HttpsOnly
     #$s = New-AzStorageShareSASToken -ShareName $sharename -Permission $perms -Context $stgcontext -StartTime $StartTime -ExpiryTime $EndTime -Protocol HttpsOnly -FullUri
-    $s = Get-AzStorageShare -Prefix $sharename -Context $stgcontext | New-AzStorageShareSASToken -Permission $perms
+    $s = Get-AzStorageShare -Prefix $sharename -Context $stgcontext.Context | New-AzStorageShareSASToken -Permission $perms -StartTime $StartTime -ExpiryTime $EndTime
     return $s
 }
 function Copy-AzFileDirectory {
@@ -110,8 +110,8 @@ function Copy-AzFileDirectory {
         [parameter (Mandatory = $true)]
         [string]$destSAS
     )
-    $srcurl = "https://" + $srcstgacctname + ".file.core.windows.net/" + $srcsharename + "/" + $srcdirname + "?" + $srcSAS
-    $desturl = "https://" + $deststgacctname + ".file.core.windows.net/" + $destsharename + "/" + $destdirname + "?" + $destSAS
+    $srcurl = "https://" + $srcstgacctname + ".file.core.windows.net/" + $srcsharename + "/" + $srcdirname + $srcSAS
+    $desturl = "https://" + $deststgacctname + ".file.core.windows.net/" + $destsharename + "/" + $destdirname + $destSAS
     &$AzCopyWPath\azcopy.exe copy "$srcurl" "$desturl" --recursive --preserve-smb-permissions=true --preserve-smb-info=true
 }
 function get-CSVlistpath {
@@ -157,6 +157,7 @@ function Invoke-Option {
         if ($sv.Trim().ToLower() -eq "y") {
             Write-host "Filtering storage accounts for those with AD integration enabled" -BackgroundColor Black -ForegroundColor Green
             $stgaccts = $stgaccts | where { $_.AzureFilesIdentityBasedAuth -ne $null }
+            Write-Host $stgaccts.Count "storage accounts found with AD integration enabled" -BackgroundColor Black -ForegroundColor Green
         }
         else {
             Write-Host "Using full list of available storage accounts" -BackgroundColor Black -ForegroundColor Green
@@ -194,10 +195,10 @@ function Invoke-Option {
         if ($op.Trim().ToLower() -eq "1") {
             Write-Host "You have selected option 1" -BackgroundColor Black -ForegroundColor Green
             Write-Host "Please enter the source folder to copy" -BackgroundColor Black -ForegroundColor Yellow
-            $src = Read-Host -Prompt 'Please provide the name of the source directory to copy'
-            $src = $src.Trim() 
+            $srcdir = Read-Host -Prompt 'Please provide the name of the source directory to copy'
+            $srcdir = $srcdir.Trim() 
 
-            Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdir $src -destdirname $src -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $dinfo.ShareName -destSAS $dsas
+            Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdirname $srcdir -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $dinfo.ShareName -destdirname $srcdir -destSAS $dsas  
         }
         elseif ($op.Trim().ToLower() -eq "2") {
             Write-Host "You have selected option 2" -BackgroundColor Black -ForegroundColor Green
