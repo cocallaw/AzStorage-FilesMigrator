@@ -140,19 +140,20 @@ function Get-UIDShareMatches {
         [Microsoft.Azure.Commands.Common.Authentication.Abstractions.IStorageContext]$stgcontext
     )
     $sfiles = Get-AzStorageFile -Context $stgcontext -ShareName $share
-    $mfiles = New-Object System.Collections.Generic.Dictionary"[String,String]"
-    foreach ($x in $names) {
-        $a = $x.uid
+    $ArrayList = New-Object -TypeName System.Collections.ArrayList
+    foreach ($n in $names) {
+        $a = $n.uid
         $b = $sfiles | where { $_.Name -like "*$a*" }
         if ($b -ne $null) {
-            Write-Host "$a has been matched to" $b.Name 
-            $mfiles.Add($a, $b.Name)
+            Write-Host "$a has been matched to" $b.Name
+            $match = @{id = $a; dir = $b.Name } 
+            $ArrayList += $match
         }
         else {
             Write-Host "$a has not been matched to any directory"
         }
     }
-    return $mfiles
+    return $ArrayList
 }
 function Invoke-Option {
     param (
@@ -235,11 +236,17 @@ function Invoke-Option {
             Write-Host "Please provide the CSV to use" -BackgroundColor Black -ForegroundColor Yellow
             $cfp = Get-CSVlistpath
             $cl = Get-CSVlist -csvfilepath $cfp
-            $sm = Get-UIDShareMatches -names $cl -share $sinfo.ShareName -stgcontext $sinfo.StorageAcctContext -deststgacct
+            $sm = Get-UIDShareMatches -names $cl -share $sinfo.ShareName -stgcontext $sinfo.StorageAcctContext
+            foreach ($s in $sm) {
+                Write-Host "Processing"+$s.id+"with the directory of"$s.dir
+                Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdirname $s.dir -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $dinfo.ShareName -destdirname $s.dir -destSAS $dsas
+            }
+            <#
             foreach ($m in $sm.getenumerator()) {
                 Write-Host "Processing"+$m.Key+"with the directory of"$m.Value
                 Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdirname $m.Value -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $m.Value -destdirname $srcdir -destSAS $dsas
             }
+            #>
         }
         else {
             Write-Host "Invalid option entered" -BackgroundColor Black -ForegroundColor Red
