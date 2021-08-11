@@ -237,27 +237,28 @@ function Invoke-Option {
             $cfp = Get-CSVlistpath
             $cl = Get-CSVlist -csvfilepath $cfp
             $sm = Get-UIDShareMatches -names $cl -share $sinfo.ShareName -stgcontext $sinfo.StorageAcctContext
-            foreach ($s in $sm) {
-                Write-Host "Processing"+$s.id+"with the directory of"$s.dir
-                Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdirname $s.dir -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $dinfo.ShareName -destdirname $s.dir -destSAS $dsas
+
+            #Ask user to confim the folder list then copy the files
+            $fv = Read-Host -Prompt "Is this selection correct? (y/n)"
+            if ($fv.Trim().ToLower() -eq "y") {
+                $i = 0
+                foreach ($s in $sm) {
+                    Write-Host "Processing"+$s.id+"with the directory of"$s.dir
+                    Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdirname $s.dir -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $dinfo.ShareName -destdirname $s.dir -destSAS $dsas
+                    $i++
+                }
+                Write-Host "Processing complete for $i objects" -BackgroundColor Black -ForegroundColor Green
             }
-            <#
-            foreach ($m in $sm.getenumerator()) {
-                Write-Host "Processing"+$m.Key+"with the directory of"$m.Value
-                Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdirname $m.Value -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $m.Value -destdirname $srcdir -destSAS $dsas
+            else {
+                Write-Host "Restarting Selection Process"
+                Invoke-Option -userSelection 1
             }
-            #>
+            Invoke-Option -userSelection (Get-Option)
         }
         else {
             Write-Host "Invalid option entered" -BackgroundColor Black -ForegroundColor Red
             Invoke-Option -userSelection (Get-Option)
         }
-
-        #Ask user to confirm they want to continue
-
-        #Perfrom copy of folder from source to destination
-
-        Invoke-Option -userSelection (Get-Option)
     }
     elseif ($userSelection -eq "2") {
         #2 - Select Azure Subscription
