@@ -226,7 +226,7 @@ function Invoke-Option {
         #Ask if moving indivual folder or using a folder list with .csv extension
         Write-Host "What would you like to do?" -BackgroundColor Black -ForegroundColor Yellow
         Write-Host "1 - Copy a single directory"
-        Write-Host "2 - Copy multiple directories using a CSV - NOT WORKING"    
+        Write-Host "2 - Copy multiple directories using a CSV"    
         $op = Read-Host -Prompt 'Please type the number of the option you would like to perform '
         if ($op.Trim().ToLower() -eq "1") {
             Write-Host "You have selected option 1" -BackgroundColor Black -ForegroundColor Green
@@ -249,12 +249,12 @@ function Invoke-Option {
                 $i = 0
                 $time = Track-Time $time
                 foreach ($s in $sm) {
-                    Write-Host "Processing"+$s.id+"with the directory of"$s.dir
+                    Write-Host "Processing"+$s.id+"with the directory of"$s.dir -BackgroundColor Black -ForegroundColor Green
                     Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdirname $s.dir -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $dinfo.ShareName -destdirname $s.dir -destSAS $dsas
                     $i++
                 }
                 $time = Track-Time $time
-                Write-Host "Processing complete for $i objects" -BackgroundColor Black -ForegroundColor Green
+                Write-Host "Processing complete for $i directories" -BackgroundColor Black -ForegroundColor Green
                 Write-Host "Processing time: " $time.Minutes "minutes" $time.Seconds "seconds" -BackgroundColor Black -ForegroundColor Green
             }
             else {
