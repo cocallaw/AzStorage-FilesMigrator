@@ -32,6 +32,11 @@ function Helper-AzSubscription {
         Select-AzSubscription -SubscriptionId $sub.Id
     }
 }
+Function Track-Time($Time) {
+    If (!($Time)) { Return Get-Date } Else {
+        Return ((get-date) - $Time)
+    }
+}
 function Get-AzCopyFromWeb {
     New-Item -Path $AzCopySetup -ItemType Directory -Force
     try {
@@ -228,8 +233,8 @@ function Invoke-Option {
             Write-Host "Please enter the source folder to copy" -BackgroundColor Black -ForegroundColor Yellow
             $srcdir = Read-Host -Prompt 'Please provide the name of the source directory to copy'
             $srcdir = $srcdir.Trim() 
-
             Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdirname $srcdir -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $dinfo.ShareName -destdirname $srcdir -destSAS $dsas  
+            Invoke-Option -userSelection (Get-Option)
         }
         elseif ($op.Trim().ToLower() -eq "2") {
             Write-Host "You have selected option 2" -BackgroundColor Black -ForegroundColor Green
@@ -242,12 +247,15 @@ function Invoke-Option {
             $fv = Read-Host -Prompt "Is this selection correct? (y/n)"
             if ($fv.Trim().ToLower() -eq "y") {
                 $i = 0
+                $time = Track-Time $time
                 foreach ($s in $sm) {
                     Write-Host "Processing"+$s.id+"with the directory of"$s.dir
                     Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdirname $s.dir -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $dinfo.ShareName -destdirname $s.dir -destSAS $dsas
                     $i++
                 }
+                $time = Track-Time $time
                 Write-Host "Processing complete for $i objects" -BackgroundColor Black -ForegroundColor Green
+                Write-Host "Processing time: " $time.Minutes "minutes" $time.Seconds "seconds" -BackgroundColor Black -ForegroundColor Green
             }
             else {
                 Write-Host "Restarting Selection Process"
