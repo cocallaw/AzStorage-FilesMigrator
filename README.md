@@ -1,5 +1,12 @@
 # AzStorage-FilesMigrator
 
+## Prerequisites
+
+* Current Version of [Azure Powershell](https://docs.microsoft.com/en-us/powershell/azure/install-az-p)
+* User running script must be logged into Azure Powershell with the appropriate RBAC permissions to work with Azure Stroage Accounts and File Shares
+
+## How to run
+
 To run this PowerShell Script from Powershell on yout local machine run the command below -
 
 `Invoke-Expression $(Invoke-WebRequest -uri aka.ms/azfilescopyps -UseBasicParsing).Content`
