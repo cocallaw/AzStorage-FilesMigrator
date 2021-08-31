@@ -10,6 +10,7 @@ function Get-Option {
     Write-Host "1 - Perform Azure Files Migration"
     Write-Host "2 - Select Azure Subscription"    
     Write-Host "3 - Download AzCopy"
+    Write-Host "4 - Adjust AZCOPY_CONCURRENCY_VALUE"
     Write-Host "8 - Exit"
     $o = Read-Host -Prompt 'Please type the number of the option you would like to perform '
     return ($o.ToString()).Trim()
@@ -160,6 +161,52 @@ function Get-UIDShareMatches {
     }
     return $ArrayList
 }
+function Set-AzCopyConcurrency {
+    param (
+        [parameter (Mandatory = $false)]
+        [switch]$on1k,
+        [parameter (Mandatory = $false)]
+        [switch]$on2k,
+        [parameter (Mandatory = $false)]
+        [switch]$on3k,
+        [parameter (Mandatory = $false)]
+        [switch]$off
+    )
+    if ($on1k) {
+        #set concurrency to 1000
+        Write-Host "Setting AZCOPY_CONCURRENCY_VALUE to 1000" -BackgroundColor Black -ForegroundColor Green
+        set AZCOPY_CONCURRENCY_VALUE=1000
+    }
+    if ($on2k) {
+        #set concurrency to 2000
+        Write-Host "Setting AZCOPY_CONCURRENCY_VALUE to 2000" -BackgroundColor Black -ForegroundColor Green
+        set AZCOPY_CONCURRENCY_VALUE=2000
+    }
+    if ($on3k) {
+        #set concurrency to 3000
+        Write-Host "Setting AZCOPY_CONCURRENCY_VALUE to 3000" -BackgroundColor Black -ForegroundColor Green
+        set AZCOPY_CONCURRENCY_VALUE=3000
+    }
+    if ($off) {
+        Write-Host "Getting CPU information to determine default value of AZCOPY_CONCURRENCY_VALUE" -BackgroundColor Black -ForegroundColor Green
+        $nlp = Get-CimInstance -ComputerName localhost -Class CIM_Processor -ErrorAction Stop | Select-Object NumberOfLogicalProcessors
+        if ($nlp.NumberOfLogicalProcessors -lt 5) {
+            set AZCOPY_CONCURRENCY_VALUE=32
+        }
+        else {
+            $c = $nlp.NumberOfLogicalProcessors * 16
+            if ($c -gt 3000) {
+                $c = 3000
+                Write-Host "Setting AZCOPY_CONCURRENCY_VALUE to" $c -BackgroundColor Black -ForegroundColor Green
+                set AZCOPY_CONCURRENCY_VALUE=$c
+            }
+            else {
+                Write-Host "Setting AZCOPY_CONCURRENCY_VALUE to" $c -BackgroundColor Black -ForegroundColor Green
+                set AZCOPY_CONCURRENCY_VALUE=$c
+            }     
+        }
+    }
+}
 function Invoke-Option {
     param (
         [parameter (Mandatory = $true)]
@@ -277,6 +324,31 @@ function Invoke-Option {
     elseif ($userSelection -eq "3") {
         #3 - Download AzCopy
         Get-AzCopyFromWeb
+        Invoke-Option -userSelection (Get-Option)
+    }
+    elseif ($userSelection -eq "4") {
+        #4 - Adjust AZCOPY_CONCURRENCY_VALUE
+        Write-Host "Please select the value for AZCOPY_CONCURRENCY_VALUE" -BackgroundColor Black -ForegroundColor Yellow
+        Write-Host "1 - Set to 1000"
+        Write-Host "2 - Set to 2000"
+        Write-Host "3 - Set to 3000" 
+        Write-Host "4 - Set to default value based on CPU" 
+        $acv = Read-Host -Prompt 'Please type the number for the corresponding option'
+        if ($acv.Trim().ToLower() -eq "1") {
+            Set-AzCopyConcurrency -on1k
+        }
+        elseif ($acv.Trim().ToLower() -eq "2") {
+            Set-AzCopyConcurrency -on2k
+        }
+        elseif ($acv.Trim().ToLower() -eq "3") {
+            Set-AzCopyConcurrency -on3k
+        }
+        elseif ($acv.Trim().ToLower() -eq "4") {
+            Set-AzCopyConcurrency -off
+        }
+        else {
+            Write-Host "Invalid option entered" -BackgroundColor Black -ForegroundColor Red
+        }
         Invoke-Option -userSelection (Get-Option)
     }
     elseif ($userSelection -eq "8") {
