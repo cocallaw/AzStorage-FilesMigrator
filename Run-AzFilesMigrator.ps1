@@ -114,7 +114,7 @@ function Copy-AzFileDirectory {
     )
     $srcurl = "https://" + $srcstgacctname + ".file.core.windows.net/" + $srcsharename + "/" + $srcdirname + $srcSAS
     $desturl = "https://" + $deststgacctname + ".file.core.windows.net/" + $destsharename + "/" + $destdirname + $destSAS
-    &$AzCopyWPath\azcopy.exe copy "$srcurl" "$desturl" --recursive --preserve-smb-permissions=true --preserve-smb-info=true
+    &$AzCopyWPath\azcopy.exe copy "$srcurl" "$desturl" --recursive --preserve-smb-permissions=true --preserve-smb-info=true --log-level=ERROR
 }
 function Get-CSVlistpath {
     Add-Type -AssemblyName System.Windows.Forms
