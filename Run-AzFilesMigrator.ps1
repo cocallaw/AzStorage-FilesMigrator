@@ -189,12 +189,12 @@ function Set-AzCopyConcurrency {
     }
     if ($off) {
         Write-Host "Getting CPU information to determine default value of AZCOPY_CONCURRENCY_VALUE" -BackgroundColor Black -ForegroundColor Green
-        $nlp = Get-CimInstance -ComputerName localhost -Class CIM_Processor -ErrorAction Stop | Select-Object NumberOfLogicalProcessors
-        if ($nlp.NumberOfLogicalProcessors -lt 5) {
+        $nlp = Get-ComputerInfo -Property CsProcessors
+        if ($nlp.CsProcessors.NumberOfLogicalProcessors -lt 5) {
             set AZCOPY_CONCURRENCY_VALUE=32
         }
         else {
-            $c = $nlp.NumberOfLogicalProcessors * 16
+            $c = $nlp.CsProcessors.NumberOfLogicalProcessors * 16
             if ($c -gt 3000) {
                 $c = 3000
                 Write-Host "Setting AZCOPY_CONCURRENCY_VALUE to" $c -BackgroundColor Black -ForegroundColor Green
