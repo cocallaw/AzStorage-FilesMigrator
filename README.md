@@ -3,7 +3,7 @@
 ## Prerequisites
 
 * Current Version of [Azure Powershell](https://docs.microsoft.com/en-us/powershell/azure/install-az-p)
-* User running script must be logged into Azure Powershell with the appropriate RBAC permissions to work with Azure Stroage Accounts and File Shares
+* User running script must be logged into Azure Powershell with the appropriate RBAC permissions to work with Azure Storage Accounts and File Shares
 
 ## How to run
 
