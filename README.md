@@ -7,7 +7,7 @@
 
 ## How to run
 
-To run this PowerShell Script from Powershell on yout local machine run the command below -
+To run this PowerShell Script from PowerShell on your local machine run the command below -
 
 `Invoke-Expression $(Invoke-WebRequest -uri aka.ms/azfilescopyps -UseBasicParsing).Content`
  
