@@ -1,10 +1,61 @@
+<#
+.SYNOPSIS
+    Azure Files Migration Script - Migrates files and directories between Azure File Shares.
+
+.DESCRIPTION
+    This script facilitates the migration of files and directories from one Azure File Share to another,
+    preserving SMB permissions and metadata. It uses AzCopy for efficient transfer and supports both
+    single directory migration and batch migration using CSV files.
+
+.NOTES
+    Version: 2.0
+    Author: Azure Files Migration Team
+    
+    Prerequisites:
+    - Azure PowerShell Module (Az)
+    - User must be logged into Azure with appropriate RBAC permissions
+    - Storage accounts must be accessible to the user
+    
+    Features:
+    - Interactive menu-driven interface
+    - Single or batch directory migration
+    - Progress tracking and reporting
+    - Error handling and validation
+    - SMB permissions and metadata preservation
+    - Configurable AzCopy concurrency settings
+
+.EXAMPLE
+    .\Run-AzFilesMigrator.ps1
+    Runs the script interactively with menu options.
+
+.LINK
+    https://docs.microsoft.com/en-us/azure/storage/files/
+#>
+
 #region variables
 $azcopyURI = "https://aka.ms/downloadazcopy-v10-windows"
 $AzCopySetup = "C:\AzCopy\DL"
 $AzCopyWPath = "C:\AzCopy\"
+$LogPath = "$env:TEMP\AzFilesMigrator_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+$EnableLogging = $true
 #endregion variables
 
 #region functions
+function Write-Log {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Message,
+        [Parameter(Mandatory=$false)]
+        [ValidateSet('INFO','WARNING','ERROR','SUCCESS')]
+        [string]$Level = 'INFO'
+    )
+    
+    if ($EnableLogging) {
+        $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+        $logMessage = "[$timestamp] [$Level] $Message"
+        Add-Content -Path $LogPath -Value $logMessage -ErrorAction SilentlyContinue
+    }
+}
 function Get-Option {
     Write-Host "What would you like to do?"
     Write-Host "1 - Perform Azure Files Migration"
@@ -172,21 +223,28 @@ function Copy-AzFileDirectory {
     $srcurl = "https://" + $srcstgacctname + ".file.core.windows.net/" + $srcsharename + "/" + $srcdirname + $srcSAS
     $desturl = "https://" + $deststgacctname + ".file.core.windows.net/" + $destsharename + "/" + $destdirname + $destSAS
     
+    $copyMsg = "Copying: $srcdirname from $srcstgacctname/$srcsharename to $deststgacctname/$destsharename"
     Write-Host "Copying: $srcdirname" -BackgroundColor Black -ForegroundColor Cyan
     Write-Host "  From: $srcstgacctname/$srcsharename" -BackgroundColor Black -ForegroundColor Cyan
     Write-Host "  To: $deststgacctname/$destsharename" -BackgroundColor Black -ForegroundColor Cyan
+    Write-Log -Message $copyMsg -Level 'INFO'
     
     try {
         &$AzCopyWPath\azcopy.exe copy "$srcurl" "$desturl" --recursive --preserve-smb-permissions=true --preserve-smb-info=true --log-level=ERROR
         if ($LASTEXITCODE -eq 0) {
             Write-Host "Successfully copied: $srcdirname" -BackgroundColor Black -ForegroundColor Green
+            Write-Log -Message "Successfully copied: $srcdirname" -Level 'SUCCESS'
         }
         else {
-            Write-Host "AzCopy completed with warnings or errors for: $srcdirname (Exit Code: $LASTEXITCODE)" -BackgroundColor Black -ForegroundColor Yellow
+            $warnMsg = "AzCopy completed with warnings or errors for: $srcdirname (Exit Code: $LASTEXITCODE)"
+            Write-Host $warnMsg -BackgroundColor Black -ForegroundColor Yellow
+            Write-Log -Message $warnMsg -Level 'WARNING'
         }
     }
     catch {
-        Write-Host "Error copying $srcdirname : $_" -BackgroundColor Black -ForegroundColor Red
+        $errMsg = "Error copying $srcdirname : $_"
+        Write-Host $errMsg -BackgroundColor Black -ForegroundColor Red
+        Write-Log -Message $errMsg -Level 'ERROR'
         throw
     }
 }
@@ -375,7 +433,16 @@ function Invoke-Option {
             Write-Host "You have selected option 1" -BackgroundColor Black -ForegroundColor Green
             Write-Host "Please enter the source folder to copy" -BackgroundColor Black -ForegroundColor Yellow
             $srcdir = Read-Host -Prompt 'Please provide the name of the source directory to copy'
-            $srcdir = $srcdir.Trim() 
+            $srcdir = $srcdir.Trim()
+            
+            if ([string]::IsNullOrWhiteSpace($srcdir)) {
+                Write-Host "Directory name cannot be empty" -BackgroundColor Black -ForegroundColor Red
+                Write-Log -Message "User entered empty directory name" -Level 'WARNING'
+                Invoke-Option -userSelection (Get-Option)
+                return
+            }
+            
+            Write-Log -Message "Single directory migration initiated: $srcdir" -Level 'INFO'
             Copy-AzFileDirectory -srcstgacctname $sinfo.StorageAcctName -srcsharename $sinfo.ShareName -srcdirname $srcdir -srcSAS $ssas -deststgacctname $dinfo.StorageAcctName -destsharename $dinfo.ShareName -destdirname $srcdir -destSAS $dsas  
             Invoke-Option -userSelection (Get-Option)
         }
@@ -396,6 +463,7 @@ function Invoke-Option {
                 $time = Track-Time $time
                 
                 Write-Host "`nStarting migration of $totalDirs directories..." -BackgroundColor Black -ForegroundColor Green
+                Write-Log -Message "Batch migration started: $totalDirs directories" -Level 'INFO'
                 
                 foreach ($s in $sm) {
                     $i++
@@ -414,11 +482,18 @@ function Invoke-Option {
                 Write-Progress -Activity "Migrating directories" -Completed
                 
                 $time = Track-Time $time
+                $summary = "Migration Summary: Total=$i, Successful=$successCount, Failed=$failureCount, Time=$($time.Hours)h $($time.Minutes)m $($time.Seconds)s"
+                
                 Write-Host "`nMigration Summary:" -BackgroundColor Black -ForegroundColor Green
                 Write-Host "  Total directories processed: $i" -BackgroundColor Black -ForegroundColor Green
                 Write-Host "  Successful: $successCount" -BackgroundColor Black -ForegroundColor Green
                 Write-Host "  Failed: $failureCount" -BackgroundColor Black -ForegroundColor $(if ($failureCount -gt 0) { "Red" } else { "Green" })
                 Write-Host "  Processing time: $($time.Hours) hours $($time.Minutes) minutes $($time.Seconds) seconds" -BackgroundColor Black -ForegroundColor Green
+                
+                Write-Log -Message $summary -Level 'INFO'
+                if ($EnableLogging) {
+                    Write-Host "`nDetailed log available at: $LogPath" -BackgroundColor Black -ForegroundColor Cyan
+                }
             }
             else {
                 Write-Host "Restarting Selection Process"
@@ -482,21 +557,29 @@ function Invoke-Option {
 Write-Host "Welcome to the Azure Files Migrator Script" -BackgroundColor Black -ForegroundColor Cyan
 Write-Host "Version 2.0 - Enhanced Edition" -BackgroundColor Black -ForegroundColor Cyan
 
+if ($EnableLogging) {
+    Write-Host "Logging enabled. Log file: $LogPath" -BackgroundColor Black -ForegroundColor Green
+    Write-Log -Message "===== Azure Files Migrator Script Started =====" -Level 'INFO'
+}
+
 # Check if user is logged into Azure
 try {
     $context = Get-AzContext
     if ($null -eq $context -or $null -eq $context.Account) {
         Write-Host "`nYou are not logged into Azure. Please run 'Connect-AzAccount' first." -BackgroundColor Black -ForegroundColor Red
         Write-Host "Exiting script..." -BackgroundColor Black -ForegroundColor Yellow
+        Write-Log -Message "Script exited: User not logged into Azure" -Level 'ERROR'
         exit
     }
     Write-Host "`nAzure connection verified" -BackgroundColor Black -ForegroundColor Green
     Write-Host "Account: $($context.Account)" -BackgroundColor Black -ForegroundColor Green
     Write-Host "Subscription: $($context.Subscription.Name)" -BackgroundColor Black -ForegroundColor Green
+    Write-Log -Message "Azure connection verified - Account: $($context.Account), Subscription: $($context.Subscription.Name)" -Level 'INFO'
 }
 catch {
     Write-Host "`nError checking Azure connection: $_" -BackgroundColor Black -ForegroundColor Red
     Write-Host "Please run 'Connect-AzAccount' and try again." -BackgroundColor Black -ForegroundColor Yellow
+    Write-Log -Message "Error checking Azure connection: $_" -Level 'ERROR'
     exit
 }
 
