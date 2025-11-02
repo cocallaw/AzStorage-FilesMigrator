@@ -36,7 +36,7 @@
 $azcopyURI = "https://aka.ms/downloadazcopy-v10-windows"
 $AzCopySetup = "C:\AzCopy\DL"
 $AzCopyWPath = "C:\AzCopy\"
-$LogPath = "$env:TEMP\AzFilesMigrator_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+$Script:LogPath = $null  # Initialized in main section
 $EnableLogging = $true
 #endregion variables
 
@@ -554,6 +554,9 @@ function Invoke-Option {
 #endregion functions
 
 #region main
+# Initialize log path once at script start
+$Script:LogPath = "$env:TEMP\AzFilesMigrator_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
 Write-Host "Welcome to the Azure Files Migrator Script" -BackgroundColor Black -ForegroundColor Cyan
 Write-Host "Version 2.0 - Enhanced Edition" -BackgroundColor Black -ForegroundColor Cyan
 
