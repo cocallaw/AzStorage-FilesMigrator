@@ -1,10 +1,63 @@
+<#
+.SYNOPSIS
+    Azure Files Migration Script - Migrates files and directories between Azure File Shares.
+
+.DESCRIPTION
+    This script facilitates the migration of files and directories from one Azure File Share to another,
+    preserving SMB permissions and metadata. It uses AzCopy for efficient transfer and supports both
+    single directory migration and batch migration using CSV files.
+
+.NOTES
+    Version: 2.0
+    Author: cocallaw
+    
+    Prerequisites:
+    - Azure PowerShell Module (Az)
+    - User must be logged into Azure with appropriate RBAC permissions
+    - Storage accounts must be accessible to the user
+    
+    Features:
+    - Interactive menu-driven interface
+    - Single or batch directory migration
+    - Progress tracking and reporting
+    - Error handling and validation
+    - SMB permissions and metadata preservation
+    - Configurable AzCopy concurrency settings
+
+.EXAMPLE
+    .\Run-AzFilesMigrator.ps1
+    Runs the script interactively with menu options.
+
+.LINK
+    https://docs.microsoft.com/en-us/azure/storage/files/
+#>
+
 #region variables
 $azcopyURI = "https://aka.ms/downloadazcopy-v10-windows"
 $AzCopySetup = "C:\AzCopy\DL"
 $AzCopyWPath = "C:\AzCopy\"
-#endregion vatiables
+$Script:LogPath = $null  # Initialized in main section
+$EnableLogging = $true
+#endregion variables
 
 #region functions
+function Write-Log {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Message,
+        [Parameter(Mandatory=$false)]
+        [ValidateSet('INFO','WARNING','ERROR','SUCCESS')]
+        [string]$Level = 'INFO'
+    )
+    
+    if ($EnableLogging) {
+        $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+        $logMessage = "[$timestamp] [$Level] $Message"
+        if ($null -ne $LogPath) {
+            Add-Content -Path $LogPath -Value $logMessage -ErrorAction SilentlyContinue
+        }
+    }
+}
 function Get-Option {
     Write-Host "What would you like to do?"
     Write-Host "1 - Perform Azure Files Migration"
@@ -39,21 +92,52 @@ Function Track-Time($Time) {
     }
 }
 function Get-AzCopyFromWeb {
-    New-Item -Path $AzCopySetup -ItemType Directory -Force
     try {
-        Start-BitsTransfer -Source $azcopyURI -Destination "$AzCopySetup\azcopy_windows_amd64.zip"
+        Write-Host "Creating download directory..." -BackgroundColor Black -ForegroundColor Green
+        New-Item -Path $AzCopySetup -ItemType Directory -Force | Out-Null
+        
+        Write-Host "Downloading AzCopy from $azcopyURI..." -BackgroundColor Black -ForegroundColor Green
+        try {
+            Start-BitsTransfer -Source $azcopyURI -Destination "$AzCopySetup\azcopy_windows_amd64.zip" -Description "Downloading AzCopy" -DisplayName "AzCopy Download"
+        }
+        catch {
+            Write-Host "BITS transfer failed, using WebRequest instead..." -BackgroundColor Black -ForegroundColor Yellow
+            Invoke-WebRequest -Uri $azcopyURI -OutFile "$AzCopySetup\azcopy_windows_amd64.zip"
+        }
+        
+        if (-not (Test-Path "$AzCopySetup\azcopy_windows_amd64.zip")) {
+            throw "Failed to download AzCopy"
+        }
+        
+        Write-Host "Downloaded AzCopy to $AzCopySetup" -BackgroundColor Black -ForegroundColor Green
+        Write-Host "Expanding azcopy_windows_amd64.zip..." -BackgroundColor Black -ForegroundColor Green
+        Expand-Archive "$AzCopySetup\azcopy_windows_amd64.zip" -DestinationPath "$AzCopyWPath" -Force
+        
+        $ci = Get-ChildItem -Path $AzCopyWPath -Include *.exe, *.txt -File -Recurse
+        if ($ci.Count -eq 0) {
+            throw "No AzCopy executable found in extracted files"
+        }
+        
+        Write-Host "Copying AzCopy files to $AzCopyWPath..." -BackgroundColor Black -ForegroundColor Green
+        foreach ($file in $ci) { 
+            Copy-Item $file.FullName -Destination $AzCopyWPath -Force
+        }
+        
+        Write-Host "Cleaning up temporary files..." -BackgroundColor Black -ForegroundColor Green
+        Remove-Item "$AzCopySetup" -Force -Recurse -ErrorAction SilentlyContinue
+        Remove-Item $ci.DirectoryName -Force -Recurse -ErrorAction SilentlyContinue
+        
+        if (Test-Path "$AzCopyWPath\azcopy.exe") {
+            Write-Host "AzCopy Tool successfully installed at $AzCopyWPath" -BackgroundColor Black -ForegroundColor Green
+        }
+        else {
+            throw "AzCopy installation verification failed"
+        }
     }
     catch {
-        Invoke-WebRequest -Uri $azcopyURI -OutFile "$AzCopySetup\azcopy_windows_amd64.zip"
+        Write-Host "Error downloading or installing AzCopy: $_" -BackgroundColor Black -ForegroundColor Red
+        throw
     }
-    Write-Host "Downloaded AzCopy to $AzCopySetup" -BackgroundColor Black -ForegroundColor Green
-    Write-Host "Expanding and cleaning up azcopy_windows_amd64.zip" -BackgroundColor Black -ForegroundColor Green
-    Expand-Archive "$AzCopySetup\azcopy_windows_amd64.zip" -DestinationPath "$AzCopyWPath" -ErrorAction SilentlyContinue
-    $ci = Get-ChildItem -Path $AzCopyWPath -Include *.exe, *.txt -File -Recurse
-    foreach ($file in $ci) { Copy-Item $file.FullName -Destination $AzCopyWPath }
-    Remove-Item "$AzCopySetup" -Force -Recurse
-    Remove-Item $ci.DirectoryName -Force -Recurse -ErrorAction SilentlyContinue
-    Write-Host "AzCopy Tool is located at" $AzCopyWPath -BackgroundColor Black -ForegroundColor Green
 }
 function Get-AzShareInfo {
     param (
@@ -66,13 +150,39 @@ function Get-AzShareInfo {
     )
     [hashtable]$return = @{}
     if ($source) { $L = "Source" }elseif ($dest) { $L = "Destination" }
+    
     Write-Host "Please select the $L storage account" -BackgroundColor Black -ForegroundColor Yellow
     $stg = $storageaccts | ogv -Title "Select $L Storage Account" -PassThru
+    
+    if ($null -eq $stg -or $null -eq $stg.StorageAccountName) {
+        Write-Host "No storage account selected" -BackgroundColor Black -ForegroundColor Red
+        throw "Storage account selection is required"
+    }
+    
     Write-Host "$L storage account is" $stg.StorageAccountName -BackgroundColor Black -ForegroundColor Green
-    Write-Host "Getting list of avaialble file shares in" $stg.StorageAccountName -BackgroundColor Black -ForegroundColor Green
-    $shares = Get-AzStorageShare -Context $stg.Context
+    Write-Host "Getting list of available file shares in" $stg.StorageAccountName -BackgroundColor Black -ForegroundColor Green
+    
+    try {
+        $shares = Get-AzStorageShare -Context $stg.Context
+        if ($shares.Count -eq 0) {
+            Write-Host "No file shares found in storage account: $($stg.StorageAccountName)" -BackgroundColor Black -ForegroundColor Red
+            throw "No file shares available"
+        }
+        Write-Host "Found $($shares.Count) file share(s)" -BackgroundColor Black -ForegroundColor Green
+    }
+    catch {
+        Write-Host "Error retrieving file shares: $_" -BackgroundColor Black -ForegroundColor Red
+        throw
+    }
+    
     Write-Host "Please Select the $L file share in" $stg.StorageAccountName -BackgroundColor Black -ForegroundColor Yellow
     $share = $shares | ogv -Title "Select $L File Share" -PassThru
+    
+    if ($null -eq $share -or $null -eq $share.Name) {
+        Write-Host "No file share selected" -BackgroundColor Black -ForegroundColor Red
+        throw "File share selection is required"
+    }
+    
     $return = @{"StorageAcctName" = $stg.StorageAccountName; "StorageAcctContext" = $stg.Context; "ShareName" = $share.Name }
     return $return
 }
@@ -114,7 +224,31 @@ function Copy-AzFileDirectory {
     )
     $srcurl = "https://" + $srcstgacctname + ".file.core.windows.net/" + $srcsharename + "/" + $srcdirname + $srcSAS
     $desturl = "https://" + $deststgacctname + ".file.core.windows.net/" + $destsharename + "/" + $destdirname + $destSAS
-    &$AzCopyWPath\azcopy.exe copy "$srcurl" "$desturl" --recursive --preserve-smb-permissions=true --preserve-smb-info=true --log-level=ERROR
+    
+    $copyMsg = "Copying: $srcdirname from $srcstgacctname/$srcsharename to $deststgacctname/$destsharename"
+    Write-Host "Copying: $srcdirname" -BackgroundColor Black -ForegroundColor Cyan
+    Write-Host "  From: $srcstgacctname/$srcsharename" -BackgroundColor Black -ForegroundColor Cyan
+    Write-Host "  To: $deststgacctname/$destsharename" -BackgroundColor Black -ForegroundColor Cyan
+    Write-Log -Message $copyMsg -Level 'INFO'
+    
+    try {
+        &$AzCopyWPath\azcopy.exe copy "$srcurl" "$desturl" --recursive --preserve-smb-permissions=true --preserve-smb-info=true --log-level=ERROR
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Successfully copied: $srcdirname" -BackgroundColor Black -ForegroundColor Green
+            Write-Log -Message "Successfully copied: $srcdirname" -Level 'SUCCESS'
+        }
+        else {
+            $warnMsg = "AzCopy completed with warnings or errors for: $srcdirname (Exit Code: $LASTEXITCODE)"
+            Write-Host $warnMsg -BackgroundColor Black -ForegroundColor Yellow
+            Write-Log -Message $warnMsg -Level 'WARNING'
+        }
+    }
+    catch {
+        $errMsg = "Error copying $srcdirname : $_"
+        Write-Host $errMsg -BackgroundColor Black -ForegroundColor Red
+        Write-Log -Message $errMsg -Level 'ERROR'
+        throw
+    }
 }
 function Get-CSVlistpath {
     Add-Type -AssemblyName System.Windows.Forms
@@ -131,9 +265,20 @@ function Get-CSVlist {
         [parameter (Mandatory = $true)]
         [string]$csvfilepath
     )
-    $csv = Import-Csv -Path $csvfilepath -Header uid
-    Write-Host $csv.count"Items were imported from the CSV file provided"  -BackgroundColor Black -ForegroundColor Green
-    return $csv 
+    if (-not (Test-Path $csvfilepath)) {
+        Write-Host "CSV file not found at: $csvfilepath" -BackgroundColor Black -ForegroundColor Red
+        throw "CSV file not found"
+    }
+    
+    try {
+        $csv = Import-Csv -Path $csvfilepath -Header uid
+        Write-Host "$($csv.count) items were imported from the CSV file provided" -BackgroundColor Black -ForegroundColor Green
+        return $csv 
+    }
+    catch {
+        Write-Host "Error reading CSV file: $_" -BackgroundColor Black -ForegroundColor Red
+        throw
+    }
 }
 function Get-UIDShareMatches {
     [CmdletBinding()]
@@ -145,20 +290,31 @@ function Get-UIDShareMatches {
         [parameter (Mandatory = $true)]
         [Microsoft.Azure.Commands.Common.Authentication.Abstractions.IStorageContext]$stgcontext
     )
+    Write-Host "Retrieving file list from share..." -BackgroundColor Black -ForegroundColor Green
     $sfiles = Get-AzStorageFile -Context $stgcontext -ShareName $share
+    Write-Host "Retrieved $($sfiles.Count) items from share" -BackgroundColor Black -ForegroundColor Green
+    
     $ArrayList = New-Object -TypeName System.Collections.ArrayList
+    $matchCount = 0
+    $totalCount = $names.Count
+    
     foreach ($n in $names) {
+        $matchCount++
+        Write-Progress -Activity "Matching directories" -Status "Processing $matchCount of $totalCount" -PercentComplete (($matchCount / $totalCount) * 100)
+        
         $a = $n.uid
-        $b = $sfiles | where { $_.Name -like "*$a*" }
-        if ($b -ne $null) {
-            Write-Host "$a has been matched to" $b.Name
+        $b = $sfiles | Where-Object { $_.Name -like "*$a*" }
+        if ($null -ne $b) {
+            Write-Host "$a has been matched to" $b.Name -BackgroundColor Black -ForegroundColor Green
             $match = @{id = $a; dir = $b.Name } 
             $ArrayList += $match
         }
         else {
-            Write-Host "$a has not been matched to any directory"
+            Write-Host "$a has not been matched to any directory" -BackgroundColor Black -ForegroundColor Yellow
         }
     }
+    Write-Progress -Activity "Matching directories" -Completed
+    Write-Host "Matched $($ArrayList.Count) out of $totalCount directories" -BackgroundColor Black -ForegroundColor Green
     return $ArrayList
 }
 function Set-AzCopyConcurrency {
@@ -175,34 +331,34 @@ function Set-AzCopyConcurrency {
     if ($on1k) {
         #set concurrency to 1000
         Write-Host "Setting AZCOPY_CONCURRENCY_VALUE to 1000" -BackgroundColor Black -ForegroundColor Green
-        set AZCOPY_CONCURRENCY_VALUE=1000
+        $env:AZCOPY_CONCURRENCY_VALUE = 1000
     }
     if ($on2k) {
         #set concurrency to 2000
         Write-Host "Setting AZCOPY_CONCURRENCY_VALUE to 2000" -BackgroundColor Black -ForegroundColor Green
-        set AZCOPY_CONCURRENCY_VALUE=2000
+        $env:AZCOPY_CONCURRENCY_VALUE = 2000
     }
     if ($on3k) {
         #set concurrency to 3000
         Write-Host "Setting AZCOPY_CONCURRENCY_VALUE to 3000" -BackgroundColor Black -ForegroundColor Green
-        set AZCOPY_CONCURRENCY_VALUE=3000
+        $env:AZCOPY_CONCURRENCY_VALUE = 3000
     }
     if ($off) {
         Write-Host "Getting CPU information to determine default value of AZCOPY_CONCURRENCY_VALUE" -BackgroundColor Black -ForegroundColor Green
         $nlp = Get-ComputerInfo -Property CsProcessors
         if ($nlp.CsProcessors.NumberOfLogicalProcessors -lt 5) {
-            set AZCOPY_CONCURRENCY_VALUE=32
+            $env:AZCOPY_CONCURRENCY_VALUE = 32
         }
         else {
             $c = $nlp.CsProcessors.NumberOfLogicalProcessors * 16
             if ($c -gt 3000) {
                 $c = 3000
                 Write-Host "Setting AZCOPY_CONCURRENCY_VALUE to" $c -BackgroundColor Black -ForegroundColor Green
-                set AZCOPY_CONCURRENCY_VALUE=$c
+                $env:AZCOPY_CONCURRENCY_VALUE = $c
             }
             else {
                 Write-Host "Setting AZCOPY_CONCURRENCY_VALUE to" $c -BackgroundColor Black -ForegroundColor Green
-                set AZCOPY_CONCURRENCY_VALUE=$c
+                $env:AZCOPY_CONCURRENCY_VALUE = $c
             }     
         }
     }
@@ -224,7 +380,7 @@ function Invoke-Option {
                 Get-AzCopyFromWeb     
             }    
             elseif ($hv.Trim().ToLower() -eq "n") {
-                Write-Host "AzCopy Tool is required to properly package MSIX apps" -BackgroundColor Black -ForegroundColor Red
+                Write-Host "AzCopy Tool is required to perform Azure Files migration" -BackgroundColor Black -ForegroundColor Red
                 Write-Host "Exiting migration, please download latest tooling to proceed further" -BackgroundColor Black -ForegroundColor Yellow
                 Invoke-Option -userSelection (Get-Option)
             }
@@ -279,8 +435,17 @@ function Invoke-Option {
             Write-Host "You have selected option 1" -BackgroundColor Black -ForegroundColor Green
             Write-Host "Please enter the source folder to copy" -BackgroundColor Black -ForegroundColor Yellow
             $srcdir = Read-Host -Prompt 'Please provide the name of the source directory to copy'
-            $srcdir = $srcdir.Trim() 
-            Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdirname $srcdir -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $dinfo.ShareName -destdirname $srcdir -destSAS $dsas  
+            $srcdir = $srcdir.Trim()
+            
+            if ([string]::IsNullOrWhiteSpace($srcdir)) {
+                Write-Host "Directory name cannot be empty" -BackgroundColor Black -ForegroundColor Red
+                Write-Log -Message "User entered empty directory name" -Level 'WARNING'
+                Invoke-Option -userSelection (Get-Option)
+                return
+            }
+            
+            Write-Log -Message "Single directory migration initiated: $srcdir" -Level 'INFO'
+            Copy-AzFileDirectory -srcstgacctname $sinfo.StorageAcctName -srcsharename $sinfo.ShareName -srcdirname $srcdir -srcSAS $ssas -deststgacctname $dinfo.StorageAcctName -destsharename $dinfo.ShareName -destdirname $srcdir -destSAS $dsas  
             Invoke-Option -userSelection (Get-Option)
         }
         elseif ($op.Trim().ToLower() -eq "2") {
@@ -290,19 +455,47 @@ function Invoke-Option {
             $cl = Get-CSVlist -csvfilepath $cfp
             $sm = Get-UIDShareMatches -names $cl -share $sinfo.ShareName -stgcontext $sinfo.StorageAcctContext
 
-            #Ask user to confim the folder list then copy the files
+            #Ask user to confirm the folder list then copy the files
             $fv = Read-Host -Prompt "Is this selection correct? (y/n)"
             if ($fv.Trim().ToLower() -eq "y") {
                 $i = 0
+                $totalDirs = $sm.Count
+                $successCount = 0
+                $failureCount = 0
                 $time = Track-Time $time
+                
+                Write-Host "`nStarting migration of $totalDirs directories..." -BackgroundColor Black -ForegroundColor Green
+                Write-Log -Message "Batch migration started: $totalDirs directories" -Level 'INFO'
+                
                 foreach ($s in $sm) {
-                    Write-Host "Processing"+$s.id+"with the directory of"$s.dir -BackgroundColor Black -ForegroundColor Green
-                    Copy-AzFileDirectory -srcstgacct $sinfo.StorageAcctName -srcshare $sinfo.ShareName -srcdirname $s.dir -srcSAS $ssas -deststgacct $dinfo.StorageAcctName -destshare $dinfo.ShareName -destdirname $s.dir -destSAS $dsas
                     $i++
+                    Write-Progress -Activity "Migrating directories" -Status "Processing $i of $totalDirs - $($s.id)" -PercentComplete (($i / $totalDirs) * 100)
+                    Write-Host "`n[$i/$totalDirs] Processing $($s.id) with the directory of $($s.dir)" -BackgroundColor Black -ForegroundColor Green
+                    
+                    try {
+                        Copy-AzFileDirectory -srcstgacctname $sinfo.StorageAcctName -srcsharename $sinfo.ShareName -srcdirname $s.dir -srcSAS $ssas -deststgacctname $dinfo.StorageAcctName -destsharename $dinfo.ShareName -destdirname $s.dir -destSAS $dsas
+                        $successCount++
+                    }
+                    catch {
+                        Write-Host "Failed to copy directory $($s.dir): $_" -BackgroundColor Black -ForegroundColor Red
+                        $failureCount++
+                    }
                 }
+                Write-Progress -Activity "Migrating directories" -Completed
+                
                 $time = Track-Time $time
-                Write-Host "Processing complete for $i directories" -BackgroundColor Black -ForegroundColor Green
-                Write-Host "Processing time: " $time.Minutes "minutes" $time.Seconds "seconds" -BackgroundColor Black -ForegroundColor Green
+                $summary = "Migration Summary: Total=$i, Successful=$successCount, Failed=$failureCount, Time=$($time.Hours)h $($time.Minutes)m $($time.Seconds)s"
+                
+                Write-Host "`nMigration Summary:" -BackgroundColor Black -ForegroundColor Green
+                Write-Host "  Total directories processed: $i" -BackgroundColor Black -ForegroundColor Green
+                Write-Host "  Successful: $successCount" -BackgroundColor Black -ForegroundColor Green
+                Write-Host "  Failed: $failureCount" -BackgroundColor Black -ForegroundColor $(if ($failureCount -gt 0) { "Red" } else { "Green" })
+                Write-Host "  Processing time: $($time.Hours) hours $($time.Minutes) minutes $($time.Seconds) seconds" -BackgroundColor Black -ForegroundColor Green
+                
+                Write-Log -Message $summary -Level 'INFO'
+                if ($EnableLogging) {
+                    Write-Host "`nDetailed log available at: $LogPath" -BackgroundColor Black -ForegroundColor Cyan
+                }
             }
             else {
                 Write-Host "Restarting Selection Process"
@@ -363,12 +556,52 @@ function Invoke-Option {
 #endregion functions
 
 #region main
-Write-Host "Welcome to the Azure Files Migrator Script"
+# Initialize log path once at script start
+$Script:LogPath = "$env:TEMP\AzFilesMigrator_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
+Write-Host "Welcome to the Azure Files Migrator Script" -BackgroundColor Black -ForegroundColor Cyan
+Write-Host "Version 2.0 - Enhanced Edition" -BackgroundColor Black -ForegroundColor Cyan
+
+if ($EnableLogging) {
+    Write-Host "Logging enabled. Log file: $LogPath" -BackgroundColor Black -ForegroundColor Green
+    Write-Log -Message "===== Azure Files Migrator Script Started =====" -Level 'INFO'
+}
+
+# Check if user is logged into Azure
+try {
+    $context = Get-AzContext
+    if ($null -eq $context -or $null -eq $context.Account) {
+        Write-Host "`nYou are not logged into Azure. Please run 'Connect-AzAccount' first." -BackgroundColor Black -ForegroundColor Red
+        Write-Host "Exiting script..." -BackgroundColor Black -ForegroundColor Yellow
+        Write-Log -Message "Script exited: User not logged into Azure" -Level 'ERROR'
+        exit
+    }
+    Write-Host "`nAzure connection verified" -BackgroundColor Black -ForegroundColor Green
+    Write-Host "Account: $($context.Account)" -BackgroundColor Black -ForegroundColor Green
+    Write-Host "Subscription: $($context.Subscription.Name)" -BackgroundColor Black -ForegroundColor Green
+    Write-Log -Message "Azure connection verified - Account: $($context.Account), Subscription: $($context.Subscription.Name)" -Level 'INFO'
+}
+catch {
+    Write-Host "`nError checking Azure connection: $_" -BackgroundColor Black -ForegroundColor Red
+    Write-Host "Please run 'Connect-AzAccount' and try again." -BackgroundColor Black -ForegroundColor Yellow
+    Write-Log -Message "Error checking Azure connection: $_" -Level 'ERROR'
+    exit
+}
+
 try {
     Invoke-Option -userSelection (Get-Option)
 }
 catch {
-    Write-Host "Something went wrong" -ForegroundColor Yellow -BackgroundColor Black
-    Invoke-Option -userSelection (Get-Option)
+    Write-Host "`nAn error occurred: $_" -ForegroundColor Red -BackgroundColor Black
+    Write-Host "Stack Trace: $($_.ScriptStackTrace)" -ForegroundColor Red -BackgroundColor Black
+    Write-Host "`nReturning to main menu..." -ForegroundColor Yellow -BackgroundColor Black
+    Start-Sleep -Seconds 3
+    try {
+        Invoke-Option -userSelection (Get-Option)
+    }
+    catch {
+        Write-Host "`nCritical error occurred. Exiting script." -ForegroundColor Red -BackgroundColor Black
+        exit
+    }
 }
 #endregion main
