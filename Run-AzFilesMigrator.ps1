@@ -9,7 +9,7 @@
 
 .NOTES
     Version: 2.0
-    Author: Azure Files Migration Team
+    Author: cocallaw
     
     Prerequisites:
     - Azure PowerShell Module (Az)
@@ -53,7 +53,9 @@ function Write-Log {
     if ($EnableLogging) {
         $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
         $logMessage = "[$timestamp] [$Level] $Message"
-        Add-Content -Path $LogPath -Value $logMessage -ErrorAction SilentlyContinue
+        if ($null -ne $LogPath) {
+            Add-Content -Path $LogPath -Value $logMessage -ErrorAction SilentlyContinue
+        }
     }
 }
 function Get-Option {
